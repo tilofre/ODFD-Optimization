@@ -394,5 +394,3 @@ def handle_standard_assignment(order, attempts, couriers, timestart, constants, 
     # End
     updated_metrics = (delay_inc, 0, success, success_delay, stacked_orders, rejected_orders)
     return False, updated_metrics, assignment_log
-
-

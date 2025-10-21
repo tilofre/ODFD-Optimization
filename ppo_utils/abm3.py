@@ -1,4 +1,4 @@
-# ## 1. Library Imports and Initial Setup
+# Imports and Initial Setup
 import pandas as pd
 import numpy as np
 import math
@@ -10,7 +10,9 @@ import ppo_utils.splitPPO as split2
 import ppo_utils.rejection as rejection
 import ppo_utils.repositioning as repositioning
 
-
+"""
+We use this ABM, as it differes marginally from the one used for the ABM. Due to time constraints its an abm util designed for the PPO.
+"""
 
 class Courier:
     """
@@ -34,23 +36,21 @@ class Courier:
 
 def get_hex_distance(start_hex, end_hex):
     """
-    Berechnet die Distanz mit der schnellen h3.grid_distance Funktion
-    UND nutzt einen Cache, um wiederholte Berechnungen zu vermeiden.
+    Helper function for distance calculation based on h3 hexagon 
     """
   
     try:
         distance = h3.grid_distance(start_hex, end_hex)
-        # 3. Speichere das Ergebnis im Cache für die Zukunft
         return distance
     except (h3.H3FailedError, TypeError):
         return float('inf')
     
 def calculate_travel_time(start_hex, end_hex, SPEED_HEX_PER_STEP, steps):
-    """Hilfsfunktion zur Berechnung der Reisezeit in Sekunden für das Batching."""
+    """Calculation of travel time."""
     distance = get_hex_distance(start_hex, end_hex)
     if distance == float('inf'): 
         return float('inf')
-    # Reisezeit = (Anzahl der Schritte) * (Dauer eines Schritts)
+    # travel time = number of steps*speed
     travel_steps = math.ceil(distance / SPEED_HEX_PER_STEP)
     return travel_steps * steps
 
@@ -88,64 +88,12 @@ def initiate_couriers(total_couriers_to_create, data_source_df):
     return fleet
 
 
-def move_couriers(couriers, timestart, metrics, delivered_order_ids, SPEED_HEX_PER_STEP, steps):
-    """Arbeitet die 'mandatory_stops'-Liste für jeden Kurier ab."""
-    delay_inc, _, success, success_delay = metrics
-    for courier in [c for c in couriers if c.state == 'BUSY' and c.arrival_time is not None and timestart >= c.arrival_time]:
-        if not courier.mandatory_stops:
-            courier.state = 'IDLE'; courier.arrival_time = None
-            continue
-        done_stop = courier.mandatory_stops.pop(0)
-        courier.position = done_stop[0]
-        courier.route[timestart] = courier.position
-        stop_type, order = done_stop[1], done_stop[2]
-        departure_time = courier.arrival_time
-        if stop_type == 'R': 
-            departure_time = max(courier.arrival_time, order['estimate_meal_prepare_time'])
-        if stop_type == 'C':
-            delivered_order_ids.add(order['order_id'])
-            courier.completed_orders.append(order)
-            delay = courier.arrival_time - order['estimate_arrived_time']
-            courier.active_deliveries = max(0, courier.active_deliveries - 1)
-            if delay > 0: delay_inc += delay; success_delay += 1
-            else: success += 1
-        elif stop_type == 'B':
-            courier.was_repositioned = True
-        if courier.mandatory_stops:
-            next_stop = courier.mandatory_stops[0]
-            travel_time = calculate_travel_time(courier.position, next_stop[0], SPEED_HEX_PER_STEP, steps)
-            courier.arrival_time = departure_time + travel_time
-        else:
-            courier.state = 'IDLE'; courier.arrival_time = None
-    return couriers, (delay_inc, 0, success, success_delay), delivered_order_ids
-
-def move_idle_couriers_randomly(couriers, timestart):
-    """
-    Just a function where idle couriers are moved randomly to adjacent hexagons.
-    For realistic behaviour.
-    """
-    for courier in couriers:
-        if courier.state == 'IDLE':
-            try:
-                neighbors = h3.grid_ring(courier.position, 1) #grid_ring for adjacent hexagons (distance 1)
-                new_position = random.choice(list(neighbors))
-                
-            
-                courier.position = new_position
-                
-                courier.route[timestart] = new_position
-                
-            except Exception:
-                #If grid_ring fails, then do nothing
-                pass
-
-
 def find_best_free_courier(order, free_couriers):
-    """Find the closest courier"""
+    """Find the closest courier, fallback, if too many attempts avoiding queued orders to not be assigned at all"""
     best_courier = None
     min_dist = float('inf')
     restaurant_hex = order['sender_h3']
-    for courier in free_couriers:
+    for courier in free_couriers: #all idle couriers
         dist_hex = get_hex_distance(courier.position, restaurant_hex)
         if dist_hex < min_dist:
             min_dist = dist_hex
@@ -174,8 +122,8 @@ def calculate_total_distance_in_hexes(couriers_list):
 
 def move_couriers_new(couriers, timestart, metrics, delivered_order_ids, SPEED_HEX_PER_STEP, steps):
     """
-    Arbeitet die 'mandatory_stops'-Liste für jeden Kurier ab.
-    Diese Version kann zwischen echten Kunden und Split-Treffpunkten unterscheiden.
+    The couriers are moved one by one based on their state. If busy then step forward. Couriers can arrive at restaurants and customers. 
+    Thus their state is updated.
     """
     delay_inc, _, success, success_delay = metrics
     for courier in [c for c in couriers if c.state == 'BUSY' and c.arrival_time is not None and timestart >= c.arrival_time]:
@@ -192,39 +140,29 @@ def move_couriers_new(couriers, timestart, metrics, delivered_order_ids, SPEED_H
         
         departure_time = courier.arrival_time
         
-        if stop_type == 'R': 
+        if stop_type == 'R': #stop at restaurant
             if order is not None and 'estimate_meal_prepare_time' in order:
-                departure_time = max(courier.arrival_time, order['estimate_meal_prepare_time'])
-        
-        # ========================================================
-        # START DER KORREKTUR
-        # ========================================================
-        if stop_type == 'C':
-                # NEU: Zuerst die Verspätung für JEDEN C-Stopp mit Deadline berechnen
+                departure_time = max(courier.arrival_time, order['estimate_meal_prepare_time']) #get departure time
+        if stop_type == 'C': #remove order from list and task
                 if order is not None and 'estimate_arrived_time' in order:
                     delay = courier.arrival_time - order['estimate_arrived_time']
                     if delay > 0:
-                        delay_inc += delay
-                        # Wichtig: success_delay wird nur bei echten Aufträgen erhöht
+                        delay_inc += delay #dam dam delayed
                         if 'order_id' in order:
                             success_delay += 1
                     else:
                         if 'order_id' in order:
-                            success += 1
+                            success += 1 #yeah, we succeded
 
-                # KORRIGIERT: Aktionen nur für ECHTE Kundenaufträge ausführen
                 if order is not None and 'order_id' in order:
                     delivered_order_ids.add(order['order_id'])
                     courier.completed_orders.append(order)
                 
-                # Die Reduzierung der aktiven Lieferungen gilt für beide Fälle
+                # Reduce the stops of tasks
                 courier.active_deliveries = max(0, courier.active_deliveries - 1)
-        # ========================================================
-        # ENDE DER KORREKTUR
-        # ========================================================
 
-        elif stop_type == 'B':
-            courier.was_repositioned = True
+        elif stop_type == 'B': #B is repositioned
+            courier.was_repositioned = True #For plotting (old code)
 
         if courier.mandatory_stops:
             next_stop = courier.mandatory_stops[0]
@@ -233,7 +171,7 @@ def move_couriers_new(couriers, timestart, metrics, delivered_order_ids, SPEED_H
         else:
             courier.state = 'IDLE'; courier.arrival_time = None
             
-    return couriers, (delay_inc, 0, success, success_delay), delivered_order_ids
+    return couriers, (delay_inc, 0, success, success_delay), delivered_order_ids #return the metrics (0 = early delivery time)
 
 def handle_standard_assignment(order, attempts, couriers, timestart, constants, rejection_model, processed_ids_set):
     """
@@ -243,11 +181,11 @@ def handle_standard_assignment(order, attempts, couriers, timestart, constants, 
     # Create a list of potential couriers for this specific order attempt.
     candidates_for_this_order = [c for c in couriers if c.active_deliveries < 3 and order['order_id'] not in c.rejected_orders]
     
-    # --- Start the assignment-rejection loop for this order ---
+    # Start the assignment-rejection loop for this order
     while candidates_for_this_order:
         best_courier, route_plan = None, None
 
-        # --- "Second-Chance" Fallback Logic ---
+        # Second-Chance Fallback Logic ---
         # If an order is "stuck" in the queue, assign it to the nearest IDLE courier without stacking.
         if attempts > constants['MAX_QUEUE_ATTEMPTS']:
             free_candidates = [c for c in candidates_for_this_order if c.state == 'IDLE']
@@ -257,9 +195,9 @@ def handle_standard_assignment(order, attempts, couriers, timestart, constants, 
                     # Create a simple, non-stacked route
                     route_plan = [[order['sender_h3'], 'R', order], [order['recipient_h3'], 'C', order]]
         else:
-            # --- Normal, Optimal Assignment Logic ---
+            # Normal, Optimal Assignment Logic
             candidates_for_this_order.sort(key=lambda c: get_hex_distance(c.position, order['sender_h3']))
-            top_candidates = candidates_for_this_order[:100]
+            top_candidates = candidates_for_this_order[:100] #best 100 candidates per group
             
             best_courier, route_plan, _ = find_best_assignment_new(
                 order, top_candidates, timestart, 
@@ -268,37 +206,36 @@ def handle_standard_assignment(order, attempts, couriers, timestart, constants, 
 
         if not best_courier:
             # No suitable courier was found among the candidates
-            return False, 0 # ✅ CORRECT: Return a tuple for failure
+            return False, 0 
 
-        # --- Rejection Check ---
+        # Rejection Check
         prob_rejection = rejection.predict_rejection_probability(order, rejection_model)
         if random.random() < prob_rejection:
             best_courier.rejected_orders.append(order['order_id'])
             candidates_for_this_order.remove(best_courier) # Remove and try the next best
         else:
-        # # ASSIGNMENT SUCCESSFUL
+        # ASSIGNMENT SUCCESSFUL
             best_courier.mandatory_stops = route_plan
             best_courier.active_deliveries = len([s for s in route_plan if s[1] == 'C' and s[2] is not None])
             if best_courier.state == 'IDLE':
                 travel_time = calculate_travel_time(best_courier.position, route_plan[0][0], constants['SPEED_HEX_PER_STEP'], constants['steps'])
                 best_courier.arrival_time = timestart + travel_time
                 best_courier.state = 'BUSY'
-            # CRUCIAL STEP: Calculate the final delivery time
-            # Find the last stop in the route plan that is a customer delivery ('C')
+
             final_customer_stop = None
             for stop in reversed(route_plan):
                 if stop[1] == 'C' and stop[2] is not None:
                     final_customer_stop = stop
                     break
         
-        # You need a function to calculate the time to complete the whole route
+        #a function to calculate the time to complete the whole route
         total_route_time = calculate_total_route_time(best_courier, route_plan, timestart, constants)
         final_delivery_timestamp = timestart + total_route_time
         delivery_duration_seconds = final_delivery_timestamp - order['platform_order_time']
 
         processed_ids_set.add(order['order_id'])
         
-        # ✅ CORRECT: Return a tuple with True and the calculated delivery duration
+        # Return a tuple with True and the calculated delivery duration
         return True, delivery_duration_seconds
 
     # If the while loop finishes without assigning (all candidates rejected)
@@ -338,8 +275,7 @@ def calculate_total_route_time(courier, route_plan, timestart, constants):
 
 def find_best_assignment_new(order, candidate_couriers, timestart, SPEED_HEX_PER_STEP, steps, MAX_ACCEPTABLE_DELAY_SECONDS):
     """
-    OPTIMIERTE VERSION: Nutzt eine "Greedy Insertion"-Heuristik anstelle von
-    teuren Permutationen, um die beste Route zu finden.
+    Different version compared to the ABMs stacking with a greedy heuristic because of the computational resources
     """
     best_option = {"courier": None, "route": None, "lateness": float('inf')}
 
@@ -351,35 +287,34 @@ def find_best_assignment_new(order, candidate_couriers, timestart, SPEED_HEX_PER
         min_lateness_for_courier = float('inf')
         best_route_for_courier = None
 
-        # --- HEURISTIK START ---
-        # 1. Sortiere alle Pickups (Restaurants) nach ihrer Zubereitungszeit. Das ist immer optimal.
+        #the same by sort all restaurants
         all_restaurants = sorted(
             [s for s in current_stops if s[1] == 'R'] + [new_pickup],
             key=lambda s: s[2]['estimate_meal_prepare_time'] if s[2] is not None else 0
         )
         
-        # 2. Probiere jede mögliche Einfügeposition für den neuen Kunden in der bestehenden Kunden-Route aus.
+        # Test all options for a customer insert
         current_customers = [s for s in current_stops if s[1] == 'C']
         for i in range(len(current_customers) + 1):
-            # Erstelle eine Kandidaten-Route durch Einfügen
+            # Create the candidate route per insertion
             perm = list(current_customers)
             perm.insert(i, new_dropoff)
             route_candidate = all_restaurants + perm
             
-            # 3. Simuliere diese EINE Route (viel schneller als alle Permutationen)
+            # Simulate this route based on the stops (faster then the permutation)
             max_lateness_in_route = simulate_route_lateness(
                 route_candidate, courier, timestart, 
                 SPEED_HEX_PER_STEP, steps
             )
-            
+            # Search for the min max lateness
             if max_lateness_in_route < min_lateness_for_courier:
                 min_lateness_for_courier = max_lateness_in_route
                 best_route_for_courier = route_candidate
-        # --- HEURISTIK ENDE ---
-        
+
+        #If there is a stacking option
         if best_route_for_courier and min_lateness_for_courier < best_option["lateness"]:
             best_option = {"courier": courier, "route": best_route_for_courier, "lateness": min_lateness_for_courier}
-
+    #Is the lateness within the max acceptable delay threshold
     if best_option["lateness"] <= MAX_ACCEPTABLE_DELAY_SECONDS:
         return best_option["courier"], best_option["route"], best_option["lateness"]
     
@@ -388,10 +323,8 @@ def find_best_assignment_new(order, candidate_couriers, timestart, SPEED_HEX_PER
 
 def simulate_route_lateness(route, courier, timestart, speed, steps):
     """
-    Hilfsfunktion: Simuliert eine Route und gibt die maximale Verspätung zurück.
-    (Diese Logik haben Sie bereits in Ihrer alten find_best_assignment_new Funktion)
+    Helper function for find best assignment
     """
-# NEUE, KORRIGIERTE ZEILE
     sim_time = courier.arrival_time if courier.state == 'BUSY' and courier.arrival_time is not None else timestart
     sim_pos = courier.position if courier.state == 'IDLE' else (courier.mandatory_stops[0][0] if courier.mandatory_stops else courier.position)
     max_lateness = -float('inf')
@@ -410,88 +343,29 @@ def simulate_route_lateness(route, courier, timestart, speed, steps):
             
     return max_lateness
 
-def create_courier_schedule(n_couriers, simulation_duration, availability_changes_per_hour=2):
-    """ Erstellt einen Zeitplan für zufällige Änderungen der Kurier-Verfügbarkeit. """
-    schedule = defaultdict(list)
-    n_changes = int(simulation_duration / 3600 * availability_changes_per_hour)
-    for _ in range(n_changes):
-        timestep = np.random.randint(0, simulation_duration)
-        n_adjust = np.random.randint(1, max(2, int(n_couriers * 0.1)))
-        adjustment = n_adjust if np.random.random() > 0.5 else -n_adjust
-        schedule[timestep].append(adjustment)
-    return schedule
-
-def manage_courier_availability(couriers, timestart):
-    """
-    Prüft abgeschlossene Lieferungen und setzt den Kurier-Status zurück.
-    ANPASSUNG: Angepasst an Ihre 'mandatory_stops'-Struktur.
-    """
-    for courier in couriers:
-        # Entferne vergangene Stopps aus der Aufgabenliste
-        if courier.mandatory_stops:
-            remaining_stops = [stop for stop in courier.mandatory_stops if stop[2]['estimate_arrived_time'] > timestart]
-            
-            if len(remaining_stops) < len(courier.mandatory_stops):
-                courier.mandatory_stops = remaining_stops
-                # Aktualisiere die Anzahl aktiver Lieferungen basierend auf verbleibenden 'C'-Stopps
-                courier.active_deliveries = len([s for s in remaining_stops if s[1] == 'C'])
-
-        # Wenn keine Aufgaben mehr, setze auf IDLE
-        if not courier.mandatory_stops and courier.state == 'BUSY':
-            courier.state = 'IDLE'
-            courier.active_deliveries = 0
-            
-    return couriers # Gibt die aktualisierte Liste zurück
-
-# Fügen Sie diese Funktionen zu Ihrer h3_abm_utils.py oder einer ähnlichen Datei hinzu
-from collections import defaultdict
-import h3
-
-def build_courier_index(idle_couriers):
-    """
-    Erstellt ein blitzschnelles Verzeichnis, das H3-Indizes auf Listen von
-    Kurieren abbildet, die sich dort befinden.
-    """
-    index = defaultdict(list)
-    for courier in idle_couriers:
-        index[courier.position].append(courier)
-    return index
-
-def find_nearby_couriers_indexed(order_hex, courier_index, search_radius=2000):
-    """
-    Nutzt den Index, um Kuriere in einem Radius extrem schnell zu finden.
-    """
-    nearby_couriers = []
-    # h3.grid_disk gibt sofort alle Hexagons im Umkreis zurück
-    search_hexes = h3.grid_disk(order_hex, search_radius)
-    
-    for hex_id in search_hexes:
-        if hex_id in courier_index:
-            nearby_couriers.extend(courier_index[hex_id])
-            
-    return nearby_couriers
-
-
-# FÜGE DIESE FUNKTIONEN IN abm2.py EIN
+"""
+Here comes the splitted run abm function designed for the PPO. We first update the state of couriers and movement with repositioning,
+get the new orders and then assig the orders as a split or as direct
+"""
 
 def update_couriers_and_system(timestart, steps, couriers, delivered_orders, constants, demand_forecast,order_queue):
     """
-    NEUE FUNKTION (Teil 1 von run_abm_step):
-    Aktualisiert den Zustand aller Kuriere, bewegt sie und verarbeitet abgeschlossene Lieferungen.
-    Gibt die aktualisierte Kurierliste und die Liste der zugestellten Aufträge zurück.
+    First part:
+    Updates the status of all couriers, moves them and processes completed deliveries.
+    Returns the updated courier list and the list of delivered orders.
     """
-    # Ruft deine bestehende Funktion move_couriers_new auf
+    # Calls move couriers
     couriers, _, newly_delivered_ids = move_couriers_new(
         couriers, 
         timestart, 
-        (0, 0, 0, 0), # Metriken werden jetzt extern getrackt
+        (0, 0, 0, 0), # Not all metrics necessary
         delivered_orders,
         constants['SPEED_HEX_PER_STEP'], 
         constants['steps']
     )
     delivered_orders.update(newly_delivered_ids)
     
-    USE_REPOSITIONING = True # Sie können dies als Parameter steuern
+    USE_REPOSITIONING = True # To activate or deactivate repositioning
     if USE_REPOSITIONING and (timestart - constants['initial_timestart']) % constants['repositioning_interval'] == 0:
         
         current_bin_key = pd.to_datetime(timestart, unit='s').floor('15min') + pd.Timedelta(hours=8)
@@ -507,8 +381,8 @@ def update_couriers_and_system(timestart, steps, couriers, delivered_orders, con
 
 def get_new_orders(timestart, steps, data):
     """
-    NEUE FUNKTION (Teil 2 von run_abm_step):
-    Holt alle neuen Aufträge, die im aktuellen Zeitschritt eingehen.
+    Part 2
+    Get all orders from the time step
     """
     current_orders_df = data[
         (data['platform_order_time'] >= timestart) &
@@ -520,27 +394,26 @@ def get_new_orders(timestart, steps, data):
 
 def execute_decision_for_order(order, action, couriers, timestart, constants, reward_calculator, state_handler, rejection_model, state_features):
     """
-    NEUE FUNKTION (Teil 3 von run_abm_step):
-    Führt EINE einzelne Entscheidung für EINEN Auftrag aus und berechnet den daraus resultierenden Reward.
+    Part 3
+    One decision for one task. If 0 then direct, if 1 then split. This is based on the decision of the agent and predefined
     """
     success, delivery_time = False, 0
     
-    # Temporäre Sets für die Auftrags-Handler, da sie nur für diesen einen Auftrag relevant sind
     processed_ids_set = set()
-    order_queue_placeholder = [] # Platzhalter, falls von Split-Funktion benötigt
+    order_queue_placeholder = []
 
-    if action == 0:  # Direkte Lieferung
-        # Deine bestehende Logik zur direkten Zuweisung
+    if action == 0:  # Direct
+        # standard assignment handles the order
         success, delivery_time = handle_standard_assignment(
             order, 0, couriers, timestart, constants, rejection_model, processed_ids_set
         )
-    else:  # Split-Lieferung
-        # Deine bestehende Logik zur Split-Zuweisung
+    else:  # Split
+        # Split logic handles the order
         success, delivery_time = split2.try_split_assignment(
             order, couriers, timestart, constants, rejection_model, order_queue_placeholder, processed_ids_set
         )
 
-    # Berechne den Reward für genau diese Aktion
+    # Calculate the reward based on the metrics
     reward = reward_calculator.calculate_reward(
         success=success,
         order=order,
@@ -548,14 +421,11 @@ def execute_decision_for_order(order, action, couriers, timestart, constants, re
         action=action,
         state_features = state_features,
     )
-    
-    # Das 'done'-Flag ist in diesem ABM typischerweise immer False, da die Episode
-    # erst am Ende der Simulationszeit endet.
     done = False
 
-    # Aktualisiere Metriken nach der Entscheidung
+    # Update the global metrics 
     if success:
         delay = max(0, (order['platform_order_time'] + delivery_time) - order['estimate_arrived_time'])
         state_handler.update_delivery_time(delay)
         
-    return reward, done, success
+    return reward, done, success #return reward for this order

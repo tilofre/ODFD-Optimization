@@ -169,9 +169,6 @@ class RLAgentVisualizer:
         
         return c
 
-    # ================================================================= #
-    # ## NEW METHOD 1: CORRELATION OF REWARD AND CONFIDENCE         ## #
-    # ================================================================= #
     def visualize_reward_confidence(self, save_path=None):
         """
         Visualizes the correlation between the agent's confidence 

@@ -386,19 +386,18 @@ def evaluate_bringer_courier_option(hindsight_batch_info, relevant_orders, couri
             
     # DECISION 1: Is self-pickup "good enough"?
     if max_eta_shift <= ETA_SHIFT_THRESHOLD_SECONDS and not is_any_order_late_in_self_pickup:
-        # YES. The delay is acceptable and no one is late.
+        # yes, the delay is acceptable and no one is late.
         # Hindsight should NOT intervene. The standard assignment logic
         # will handle this as a normal stacking assignment.
         return {"decision": "No", "reason": f"Self-pickup is efficient enough (ETA-Shift: {max_eta_shift/60:.1f}min)."}
 
-    # --- STAGE 2 & 3: EVALUATE BRINGER CASE ---
-    # We only get here if self-pickup is a *bad* option (causes delays/lateness)
+    # We only get here if self-pickup causes delays/lateness
 
-    # a) Calculate cost of a separate, normal delivery for the new order
+    # Calculate cost of a separate, normal delivery for the new order
     best_idle_courier = min(idle_couriers, key=lambda c: abm.get_hex_distance(c.position, unassigned_order['sender_h3']))
     cost_separate_delivery, _ = calculate_best_route_for_order(best_idle_courier, unassigned_order, constants)
 
-    # b) Calculate cost and punctuality of the "bringer" action
+    # Calculate cost and punctuality of the "bringer" action
     bringer_courier = min(idle_couriers, key=lambda c: abm.get_hex_distance(c.position, unassigned_order['sender_h3']))
     intercept_point, _ = find_optimal_intercept_point(unassigned_order, bringer_courier, target_courier, timestart, constants)
     
@@ -412,7 +411,7 @@ def evaluate_bringer_courier_option(hindsight_batch_info, relevant_orders, couri
     # Target's original cost
     cost_target_original = calculate_route_travel_time(target_courier.position, original_stops, constants)
     
-    # Target's new route: Their Position -> ... -> Handoff -> ... -> New Customer -> ...
+    # Target's new route:
     handoff_stop = [intercept_point, 'H', unassigned_order]
     route_with_customer = find_best_insertion_in_route(original_stops, new_delivery, target_courier.position, constants)
     target_new_route = find_best_insertion_in_route(route_with_customer, handoff_stop, target_courier.position, constants)
@@ -424,11 +423,11 @@ def evaluate_bringer_courier_option(hindsight_batch_info, relevant_orders, couri
     cost_target_detour = cost_target_new - cost_target_original
     total_cost_bringer_action = cost_bringer_part + cost_target_detour
     
-    # Condition 1: Does it save time compared to a separate delivery?
+    # Does it save time compared to a separate delivery?
     time_saving = cost_separate_delivery - total_cost_bringer_action
     is_time_saving_positive = time_saving > 600
 
-    # Condition 2: Are all orders (existing + new) still on time?
+    # Are all orders, existing + new, still on time?
     etas_bringer_scenario = calculate_etas_for_route(timestart, target_courier.position, target_new_route, constants)
     is_any_order_late = False
     all_orders_in_new_route = {**original_customer_orders, unassigned_order['order_id']: unassigned_order}
@@ -440,7 +439,7 @@ def evaluate_bringer_courier_option(hindsight_batch_info, relevant_orders, couri
                 is_any_order_late = True
                 break
 
-    # FINAL DECISION: Only approve if BOTH conditions are met
+    # Only approve if it saves time and all orders are on time
     if is_time_saving_positive and not is_any_order_late:
         return {
             "decision": "Yes", 
@@ -458,8 +457,6 @@ def evaluate_bringer_courier_option(hindsight_batch_info, relevant_orders, couri
         return {"decision": "No", "reason": reason}
 
 
-# --- Route and Time Calculation Helpers ---
-
 def calculate_route_travel_time(start_pos, route, constants):
     """
     Calculates the total travel time (in seconds) for a given route.
@@ -468,9 +465,6 @@ def calculate_route_travel_time(start_pos, route, constants):
         start_pos (str): The starting H3 hexagon.
         route (list): A list of stops: [[hex, type, order], ...].
         constants (dict): Simulation constants.
-
-    Returns:
-        int: Total travel time in seconds.
     """
     if not route: 
         return 0
@@ -495,9 +489,6 @@ def calculate_best_route_for_order(courier, order, constants):
         courier (Courier): The courier object.
         order (dict): The order dictionary.
         constants (dict): Simulation constants.
-
-    Returns:
-        tuple: (total_travel_time, route_plan)
     """
     # The route for a single order is always Pickup, then Delivery.
     route_plan = [
@@ -513,11 +504,8 @@ def calculate_best_route_for_order(courier, order, constants):
 
 def find_best_route_for_batch(batch_orders, start_pos):
     """
-    Finds the best route (minimum distance) for a batch of orders
+    Finds the best route for a batch of orders
     using brute-force permutation.
-    
-    NOTE: This is computationally expensive and only suitable for very small
-    batches (2-3 orders). It also calculates DISTANCE, not TIME.
     """
     best_route = []
     min_dist = float('inf')
@@ -551,13 +539,13 @@ def find_optimal_intercept_point(order, bringer_courier, target_courier, timesta
     best_intercept_point = None
     min_handoff_time = float('inf')
 
-    # 1. Calculate when the bringer will have the food ready
+    # Calculate when the bringer will have the food ready to pickup
     bringer_to_rest_time = abm.calculate_travel_time(bringer_courier.position, restaurant_hex, constants['SPEED_HEX_PER_STEP'], constants['steps'])
     bringer_arrival_at_rest = timestart + bringer_to_rest_time
     # Bringer can't leave until they arrive AND the food is ready
     bringer_departs_rest = max(bringer_arrival_at_rest, order['estimate_meal_prepare_time'])
 
-    # 2. Build the target courier's full path from their mandatory stops
+    # Build the target courier's full path from their mandatory stops
     full_target_path = []
     current_pos = target_courier.position
     if not target_courier.mandatory_stops:
@@ -573,11 +561,11 @@ def find_optimal_intercept_point(order, bringer_courier, target_courier, timesta
         except h3.H3CellError:
             continue # Skip if a path can't be calculated
 
-    # CORRECTION: Check `if not list` (for an empty list)
+    # Check if not list (for an empty list)
     if not full_target_path:
         return None, float('inf') # No path was built
 
-    # 3. Iterate through every H3 cell in the path as a potential intercept point
+    # Iterate through every H3 cell in the path as a potential intercept point
     for intercept_point_candidate in full_target_path:
         
         # Time for target to reach the candidate cell

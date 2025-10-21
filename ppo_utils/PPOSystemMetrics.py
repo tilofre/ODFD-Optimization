@@ -93,41 +93,6 @@ class SystemMonitor:
             'delivery_pressure': self.metrics['delivery_pressure'][-1],
             'system_coverage': self.metrics['system_coverage_ratio'][-1]
         }
-    
-# class SystemMonitor:
-#     def __init__(self):
-#         """Initialize system-wide metric tracking"""
-#         self.metrics = defaultdict(list)
-#         self.episode_metrics = defaultdict(list)
-        
-#     def record_step(self, available, busy, inactive, current_orders, decisions, rewards):
-#         """Record metrics for a single simulation step"""
-#         # Courier metrics - now properly counting based on active_deliveries
-#         total_couriers = len(couriers)
-#         n_available = sum(1 for c in couriers if c.active_deliveries == 0)
-#         n_busy = total_couriers - n_available
-        
-#         # Order metrics
-#         n_orders = len(current_orders)
-#         n_direct = sum(1 for d in decisions if d == 0)
-#         n_split = sum(1 for d in decisions if d == 1)
-        
-#         self.metrics['n_available_couriers'].append(n_available)
-#         self.metrics['n_busy_couriers'].append(n_busy)
-#         self.metrics['n_orders'].append(n_orders)
-#         self.metrics['n_direct_deliveries'].append(n_direct)
-#         self.metrics['n_split_deliveries'].append(n_split)
-#         self.metrics['rewards'].append(np.mean(rewards) if rewards else 0)
-        
-#     def end_episode(self):
-#         """Record episode summary and reset step metrics"""
-#         for key, values in self.metrics.items():
-#             if values:
-#                 self.episode_metrics[f'avg_{key}'].append(np.mean(values))
-#                 self.episode_metrics[f'max_{key}'].append(np.max(values))
-#                 self.episode_metrics[f'min_{key}'].append(np.min(values))
-        
-#         self.metrics = defaultdict(list)
 
 class PolicyAnalyzer:
     def __init__(self, agent, state_handler):

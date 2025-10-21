@@ -3,10 +3,9 @@ import abm_utils.abm as abm
 import abm_utils.rejection as rejection
 import random
 
-def find_optimal_meeting_point(start_hex, end_hex):
+def find_mid_meeting_point(start_hex, end_hex):
     """
-    Finds an optimal meeting point along the path between two hexagons.
-    This version finds a point roughly in the middle of the path.
+    This version finds a point roughly in the middle of the path. (Thus not optimal, but will used at another calculation)
     """
     try:
         path = h3.grid_path_cells(start_hex, end_hex)
@@ -29,7 +28,7 @@ def find_dynamic_meeting_point_hex(order, courier1, courier2, timestart, constan
     restaurant_hex = order['sender_h3']
     customer_hex = order['recipient_h3']
     
-    best_meeting_point = find_optimal_meeting_point(restaurant_hex, customer_hex) # Start with the simple midpoint
+    best_meeting_point = find_mid_meeting_point(restaurant_hex, customer_hex) # Start with the simple midpoint
     min_handoff_time = float('inf')
 
     try:
@@ -204,3 +203,37 @@ def normalize_distance(distance, min_dist, max_dist):
         return 0.5  # In diesem Fall ist die Distanz genau in der Mitte
 
     return (distance - min_dist) / (max_dist - min_dist)
+
+
+def try_split_assignment(order, idle_couriers, timestart, constants, rejection_model, next_queue, processed_ids_set):
+    """
+    This is the main wrapper function for split deliveries.
+    1. It plans the best split using 'process_split_delivery'.
+    2. If a plan is found, it executes it using 'execute_split_assignment'.
+    3. It returns the (success, delivery_time) tuple needed for the RL agent.
+    """
+    # Step 1: PLAN the delivery. We need the final delivery time from the plan.
+    # NOTE: We will slightly modify process_split_delivery to return this time.
+    c1, c2, r1, r2, planned_delivery_time = process_split_delivery(order, idle_couriers, timestart, constants)
+
+    # If no valid plan could be made, the split fails immediately.
+    if not c1:
+        return False, 0
+
+    # Step 2: EXECUTE the assignment for the found plan.
+    was_processed = execute_split_assignment(
+        order, c1, c2, r1, r2, timestart, constants,
+        rejection_model, processed_ids_set, next_queue
+    )
+
+    # Step 3: Determine the final outcome for the RL agent.
+    # The assignment is only a 'success' for the RL if it was fully assigned in this step
+    # (i.e., not partially queued) AND the initial execution call was successful.
+    if was_processed and order['order_id'] in processed_ids_set:
+        # The delivery time is the one we calculated during the planning phase.
+        delivery_duration = planned_delivery_time - order['platform_order_time']
+        return True, delivery_duration
+    else:
+        # This covers cases where C1 rejected, or C2 rejected and the order was queued.
+        # From the RL agent's perspective for this timestep, it was not a success.
+        return False, 0

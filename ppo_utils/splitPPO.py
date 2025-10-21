@@ -61,86 +61,6 @@ def find_dynamic_meeting_point_hex(order, courier1, courier2, timestart, constan
             
     return best_meeting_point
 
-# def process_split_delivery(order, couriers, timestart, constants, rejection_model, processed_ids_set, next_queue):
-#     """
-#     Processes a split delivery in a hexagon environment by adapting the logic from
-#     the coordinate-based process_split_delivery function.
-    
-#     Returns True if the order processing is complete for this cycle, False if it needs to be requeued.
-#     """
-#     idle_couriers = [c for c in couriers if c.state == 'IDLE' and order['order_id'] not in c.rejected_orders]
-#     if len(idle_couriers) < 1:
-#         return False # Not enough couriers, requeue whole order
-
-#     # --- Find and assign first courier (Restaurant to Meeting Point) ---
-#     idle_couriers.sort(key=lambda c: abm.get_hex_distance(c.position, order['sender_h3']))
-#     courier1 = idle_couriers[0]
-    
-#     prob_rejection1 = rejection.predict_rejection_probability(order, rejection_model)
-#     if random.random() < prob_rejection1:
-#         courier1.rejected_orders.append(order['order_id'])
-#         return False # Part 1 rejected, requeue whole order
-    
-#     # Courier 1 ACCEPTS: Update state using simulation's format
-#     print(f"  [SPLIT PART 1] Order {order['order_id']} Part 1 assigned to Courier {courier1.id}.")
-#     courier1.was_part_of_split = True
-#     # NOTE: A temporary route is assigned here, which will be updated if a second courier is found.
-#     # We use a simple midpoint for this temporary assignment.
-#     temp_meeting_point = find_optimal_meeting_point(order['sender_h3'], order['recipient_h3'])
-#     route1 = [[order['sender_h3'], 'R', order], [temp_meeting_point, 'C', None]]
-#     courier1.mandatory_stops = route1
-#     courier1.active_deliveries = 1
-#     travel_time1 = abm.calculate_travel_time(courier1.position, route1[0][0], constants['SPEED_HEX_PER_STEP'], constants['steps'])
-#     courier1.arrival_time = timestart + travel_time1
-#     courier1.state = 'BUSY'
-
-#     # --- Find and assign second courier (Meeting Point to Customer) ---
-#     part2_assigned = False
-#     remaining_idle = [c for c in idle_couriers if c.id != courier1.id]
-#     if remaining_idle:
-#         # Find a candidate for courier 2
-#         simple_midpoint = find_optimal_meeting_point(order['sender_h3'], order['recipient_h3'])
-#         remaining_idle.sort(key=lambda c: abm.get_hex_distance(c.position, simple_midpoint))
-#         courier2 = remaining_idle[0]
-        
-#         prob_rejection2 = rejection.predict_rejection_probability(order, rejection_model)
-        
-#         if random.random() >= prob_rejection2: # Courier 2 ACCEPTS
-#             # Calculate the DYNAMIC meeting point now that we have both couriers
-#             meeting_point_hex = find_dynamic_meeting_point_hex(order, courier1, courier2, timestart, constants)
-            
-#             # Update Courier 1's route with the new, more optimal meeting point
-#             route1 = [[order['sender_h3'], 'R', order], [meeting_point_hex, 'C', None]]
-#             courier1.mandatory_stops = route1
-            
-#             # Assign Courier 2 with the optimal route
-#             courier2.was_part_of_split = True
-#             route2 = [[meeting_point_hex, 'R', None], [order['recipient_h3'], 'C', order]]
-#             courier2.mandatory_stops = route2
-#             courier2.active_deliveries = 1
-#             travel_time2 = abm.calculate_travel_time(courier2.position, route2[0][0], constants['SPEED_HEX_PER_STEP'], constants['steps'])
-#             courier2.arrival_time = timestart + travel_time2
-#             courier2.state = 'BUSY'
-            
-#             processed_ids_set.add(order['order_id'])
-#             part2_assigned = True
-#         else:
-#             courier2.rejected_orders.append(order['order_id'])
-
-#     if part2_assigned:
-#         print(f"  [SPLIT SUCCESS] Order {order['order_id']} fully split with Courier {courier2.id} for Part 2.")
-#         return True
-#     else:
-#         # If Part 2 was rejected or no courier was available, queue it up.
-#         # Courier 1 continues to the simple midpoint as their task is already set.
-#         print(f"  [SPLIT PART 2 PENDING] Order {order['order_id']} Part 2 queued.")
-#         order['assignment_status'] = 'pending_part2'
-#         order['sender_h3'] = temp_meeting_point # The pickup is now the temp meeting point
-#         order['estimate_meal_prepare_time'] = 0 # No prep time for a handoff
-#         next_queue.append((order, 0))
-#         return True # Order processed for this cycle
-    
-
 # In the cell with your helper functions, replace the planning function with this one.
 
 def process_split_delivery(order, idle_couriers, timestart, constants):
@@ -238,6 +158,10 @@ def execute_split_assignment(order, c1, c2, r1, r2, timestart, constants, reject
     travel_time1 = abm3.calculate_travel_time(c1.position, r1[0][0], constants['SPEED_HEX_PER_STEP'], constants['steps'])
     c1.arrival_time = timestart + travel_time1
     c1.state = 'BUSY'
+
+    """
+    The reasons are described in the split util for the ABM.ipynb
+    """
     
     # --- Offer task to Courier 2 ---
     # prob_rejection2 = rejection2.predict_rejection_probability(order, rejection_model)

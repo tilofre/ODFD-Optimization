@@ -92,86 +92,6 @@ class RLAgentVisualizer:
             current_time: Current simulation time
         """
         self.courier_paths[courier.id][current_time] = courier.position.copy()
-
-    # def visualize_policy(self, save_path=None):
-    #     """
-    #     Visualize the learned policy as a function of distance and courier availability,
-    #     using simple bin numbers for the x-axis labels.
-    #     """
-    #     # Create figure
-    #     fig, axes = plt.subplots(1, 2, figsize=(18, 8))
-    #     fontsize = 20
-
-    #     # Policy heatmap: Extract policy from q-table
-    #     n_dist_bins = self.state_handler.n_distance_bins
-    #     n_courier_bins = self.state_handler.n_courier_bins
-        
-    #     distances = np.linspace(0, 1, n_dist_bins)
-    #     utilization_ratios = np.linspace(0, 1, n_courier_bins)
-
-    #     policy_map = np.zeros((len(utilization_ratios), len(distances)))
-    #     confidence_map = np.zeros((len(utilization_ratios), len(distances)))
-
-    #     for i, util_ratio in enumerate(utilization_ratios):
-    #         for j, dist in enumerate(distances):
-    #             availability = 1 - util_ratio
-    #             state = self.state_handler.discretize_state((dist, availability))
-
-    #             q_values = self.agent.q_table[state]
-    #             policy_map[i, j] = np.argmax(q_values)
-
-    #             if np.sum(np.abs(q_values)) > 0:
-    #                 confidence_map[i, j] = abs(q_values[0] - q_values[1]) / np.sum(np.abs(q_values))
-    #             else:
-    #                 confidence_map[i, j] = 0
-
-    #     # --- ANPASSUNG FÜR DIE X-ACHSENBESCHRIFTUNG (BIN-NUMMERN) ---
-
-    #     # 1. Tick-Positionen sind einfach die Indizes der Bins (0, 1, 2, ...)
-    #     tick_positions = np.arange(n_dist_bins)
-        
-    #     # 2. Labels sind die Bin-Nummern (1, 2, 3, ...)
-    #     tick_labels = [str(i + 1) for i in range(n_dist_bins)]
-
-    #     # Plot the policy heatmap
-    #     ax = axes[0]
-    #     heatmap = ax.imshow(policy_map, cmap='coolwarm', aspect='auto', origin='lower')
-    #     ax.set_xlabel('Distance Bin', fontsize=fontsize) # Titel angepasst
-    #     ax.set_ylabel('Utilization Ratio', fontsize=fontsize)
-    #     cbar = fig.colorbar(heatmap, ax=ax, ticks=[0, 1])
-    #     cbar.ax.set_yticklabels(['Direct', 'Split'], fontsize=fontsize)
-        
-    #     # Die neuen Ticks und Labels setzen
-    #     ax.set_xticks(tick_positions)
-    #     ax.set_xticklabels(tick_labels, fontsize=fontsize)
-        
-    #     # Y-Achse bleibt unverändert
-    #     ax.set_yticks(np.linspace(0, len(utilization_ratios)-1, 5))
-    #     ax.set_yticklabels([f'{a:.2f}' for a in np.linspace(0, 1, 5)], fontsize=fontsize)
-    #     ax.grid(which='major', color='black', linestyle='-', linewidth=0.5, alpha=0.3)
-
-    #     # Plot confidence in the policy
-    #     ax = axes[1]
-    #     confidence_heatmap = ax.imshow(confidence_map, cmap='viridis', aspect='auto', origin='lower')
-    #     ax.set_xlabel('Distance Bin', fontsize=fontsize) # Titel angepasst
-    #     cbar = fig.colorbar(confidence_heatmap, ax=ax)
-    #     cbar.set_label('Confidence', fontsize=fontsize)
-    #     cbar.ax.yaxis.set_tick_params(labelsize=fontsize)
-        
-    #     # Die neuen Ticks und Labels auch hier setzen
-    #     ax.set_xticks(tick_positions)
-    #     ax.set_xticklabels(tick_labels, fontsize=fontsize)
-        
-    #     # Y-Achse bleibt unverändert
-    #     ax.set_yticks(np.linspace(0, len(utilization_ratios)-1, 5))
-    #     ax.set_yticklabels([f'{a:.2f}' for a in np.linspace(0, 1, 5)], fontsize=fontsize)
-    #     ax.grid(which='major', color='black', linestyle='-', linewidth=0.5, alpha=0.3)
-
-    #     plt.tight_layout()
-    #     if save_path:
-    #         plt.savefig(save_path, dpi=300, bbox_inches='tight')
-
-    #     return fig
     
     def visualize_policy(self, save_path=None):
         """
@@ -188,12 +108,9 @@ class RLAgentVisualizer:
         policy_map = np.zeros((len(utilization_ratios), len(distances)))
         confidence_map = np.zeros((len(utilization_ratios), len(distances)))
 
-        # GEÄNDERT: Die Schleifenvariable heißt jetzt 'util_ratio' für mehr Klarheit
         for i, util_ratio in enumerate(utilization_ratios):
             for j, dist in enumerate(distances):
 
-                # KORREKTUR: Wandle die Utilization Ratio in die Availability um,
-                # bevor der Zustand erstellt wird.
                 availability = 1 - util_ratio
                 state = self.state_handler.discretize_state((dist, availability))
 
@@ -204,10 +121,6 @@ class RLAgentVisualizer:
                     confidence_map[i, j] = abs(q_values[0] - q_values[1]) / np.sum(np.abs(q_values))
                 else:
                     confidence_map[i, j] = 0
-
-        # Der restliche Code zum Plotten bleibt exakt gleich.
-        # Da wir `origin='lower'` verwenden, wird die y-Achse korrekt von unten nach oben gezeichnet.
-        # Plot the policy heatmap
         ax = axes[0]
         heatmap = ax.imshow(policy_map, cmap='coolwarm', aspect='auto', origin='lower')
         ax.set_xlabel('Distance (Normalized)', fontsize=fontsize)
@@ -603,33 +516,6 @@ class RLAgentVisualizer:
             plt.savefig(save_path, dpi=300, bbox_inches='tight')
         
         return fig
-
-# def update_courier_status(couriers, current_time):
-#     """
-#     Update courier status based on completed deliveries
-
-#     Args:
-#         couriers: List of active couriers
-#         current_time: Current simulation time
-
-#     Returns:
-#         int: Number of couriers that were released from deliveries
-#     """
-#     released_count = 0
-
-#     for courier in couriers:
-#         completed_stops = [
-#             (time) for time, stop in courier.mandatory_stops.items()
-#             if time <= current_time and stop[2] == 'C'
-#         ]
-
-#         for stop_time in completed_stops:
-#             del courier.mandatory_stops[stop_time]
-#             if courier.active_deliveries > 0:
-#                 courier.active_deliveries -= 1
-#                 released_count += 1
-
-#     return released_count
 
 def integrate_visualizer(run_abm_func):
     """
