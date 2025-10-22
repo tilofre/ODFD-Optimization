@@ -11,25 +11,25 @@ This repository contains the code for my Master's thesis, which focused on optim
     cd odfd
     ```
 
-2.  **Virtual Environment**
+2.  **Virtual Environment:**
     Create new environment (recommended)
     ```bash
     python -m venv venv
     source venv/bin/activate 
     ```
 
-3.  **Install requirements**
+3.  **Install requirements:**
     Here we install all necessary libraries in their version needed
     ```bash
     pip install -r requirements.txt
     ```
 
-4.  **Important data set**
+4.  **Important data set:**
     We use files already prepared for all cases. Nevertheless, the files are based on the `all_wabill_info_meituan_0322.csv`.
     It contains the delivery data of 8 days and can be accessed here: https://github.com/meituan/Meituan-INFORMS-TSL-Research-Challenge
 
-5.  **Hands-On**
-    Everything is done. The files are structured as followed:
+5.  **Hands-On:**
+    Everything is done. The files in the repo are structured as followed:
     
     * For demand forecasting different models:
         * `ARIMA.ipynb`
