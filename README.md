@@ -58,3 +58,5 @@ This repository contains the code for my Master's thesis, which focused on optim
         * The same helpers as the PPO but specified for the Q-Learning approach, as they differ in state handlings
         
     * `Ql_test.ipynb` is the notebook to test the Ql-agent. Same as for the PPO agent. BUT: it cannot be used as long a new training is done by yourself, as the pickle files are only usable in my local environment (Idk why, but pickle is weird regarding this)
+
+    * Data Preparation folder were used to prepare h3 dataset, plot results, the code for the logistic regression prob function and the preparation for the demand prediction
