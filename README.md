@@ -1,5 +1,9 @@
 # ODFD-Optimization
 
+**Introduction**
+
+This repository contains the code for my Master's thesis, which focused on optimising the efficiency of the last mile in on-demand food delivery. The project introduces and tests two key strategies: 'delivery splitting' (transferring orders between couriers) and 'proactive courier (p)repositioning'. An agent-based model (ABM) was created to simulate these strategies in a dynamic environment using real data provided by Meituan. The repositioning strategy uses a machine learning forecast to predict demand, while reinforcement learning (PPO and Q-learning) determines the optimal approach for splitting orders.
+
 1.  **Repository klonen:**
     Open Terminal:
     ```bash
