@@ -3,7 +3,7 @@
 1.  **Repository klonen:**
     Open Terminal:
     ```bash
-    git clone [https://github.com/tilofre/ODFD-Optimization.git](https://github.com/tilofre/ODFD-Optimization.git) odfd
+    git clone https://github.com/tilofre/ODFD-Optimization.git odfd
     cd odfd
     ```
 
