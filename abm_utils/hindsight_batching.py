@@ -46,6 +46,7 @@ def handle_hindsight_analysis(timestart, order_queue, new_orders_this_step, cour
         bringer_result = evaluate_bringer_courier_option(hindsight_batch_info, relevant_orders, couriers, timestart, constants, used_courier_ids=used_courier_ids_this_step)
 
         if bringer_result and bringer_result.get('decision') == "Yes":
+            print("Done")
             bringer_id, target_id, unassigned_order = bringer_result['bringer_id'], bringer_result['target_id'], bringer_result['unassigned_order']
             
             bringer_courier = next((c for c in couriers if c.id == bringer_id), None)
@@ -154,7 +155,7 @@ def hindsight_analysis(assigned_orders, unassigned_orders, couriers, timestart, 
         return [], hindsight_cache
 
     MIN_SAVING_MINUTES = constants.get('HINDSIGHT_MIN_SAVING_MINUTES', 5)
-    MAX_DIST_BETWEEN_RESTAURANTS_HEX = constants.get('HINDSIGHT_MAX_RESTAURANT_DIST_HEX', 30)
+    MAX_DIST_BETWEEN_RESTAURANTS_HEX = constants.get('HINDSIGHT_MAX_RESTAURANT_DIST_HEX', 20)
     
     potential_batches = []
     idle_couriers = [c for c in couriers if c.state == 'IDLE']
@@ -200,15 +201,12 @@ def hindsight_analysis(assigned_orders, unassigned_orders, couriers, timestart, 
         # If we couldn't find the courier (e.g., just finished) or they have no stops, skip
         if not target_courier or not target_courier.mandatory_stops:
             continue
-        
-        # --- HEURISTIC CALCULATION (QUICK CHECK) ---
-        # This is a rough estimate to see if a full analysis is even worth it.
-        
-        # 1. Cost of separate delivery (using the *best* idle courier)
+                
+        # Cost of separate delivery (using the best idle courier)
         best_idle_courier = min(idle_couriers, key=lambda c: abm.get_hex_distance(c.position, unassigned_order['sender_h3']))
         cost_separate_delivery, _ = calculate_best_route_for_order(best_idle_courier, unassigned_order, constants)
         
-        # 2. Heuristic cost of a detour for the target courier
+        # Heuristic cost of a detour for the target courier
         current_pos = target_courier.position
         next_original_stop_pos = target_courier.mandatory_stops[0][0]
         new_resto_pos = unassigned_order['sender_h3']
@@ -296,9 +294,7 @@ def evaluate_bringer_courier_option(hindsight_batch_info, relevant_orders, couri
     
     # Filter out couriers already used in this hindsight step
     available_couriers = [c for c in couriers if c.id not in used_courier_ids]
-
-    # === SETUP: Identify Orders and Couriers ===
-    
+   
     # Helper function to safely check a courier's stops for an order
     def has_order(stop, assigned_order_id):
         order_info = stop[2]
@@ -349,7 +345,7 @@ def evaluate_bringer_courier_option(hindsight_batch_info, relevant_orders, couri
     # --- STAGE 1: EVALUATE "SELF-PICKUP" OPTION ---
     # Is it "good enough" for the target courier to just pick up the new order?
     
-    ETA_SHIFT_THRESHOLD_SECONDS = constants.get('CRITICAL_ETA_SHIFT_MINUTES', 3) * 60
+    ETA_SHIFT_THRESHOLD_SECONDS = constants.get('CRITICAL_ETA_SHIFT_MINUTES', 5) * 60
     original_stops = target_courier.mandatory_stops
     
     # Get baseline ETAs for all current customers
@@ -364,7 +360,7 @@ def evaluate_bringer_courier_option(hindsight_batch_info, relevant_orders, couri
     # Calculate new ETAs for this simulated route
     etas_self_pickup = calculate_etas_for_route(timestart, target_courier.position, route_self_pickup, constants)
     
-    # Calculate the *maximum delay* caused for *existing* customers
+    # Calculate the maximum delay caused for existing customers
     max_eta_shift = 0
     original_customer_orders = {s[2]['order_id']: s[2] for s in original_stops if s[1] == 'C' and s[2] is not None and 'order_id' in s[2]}
     
@@ -425,7 +421,7 @@ def evaluate_bringer_courier_option(hindsight_batch_info, relevant_orders, couri
     
     # Does it save time compared to a separate delivery?
     time_saving = cost_separate_delivery - total_cost_bringer_action
-    is_time_saving_positive = time_saving > 600
+    is_time_saving_positive = time_saving > 300
 
     # Are all orders, existing + new, still on time?
     etas_bringer_scenario = calculate_etas_for_route(timestart, target_courier.position, target_new_route, constants)
@@ -438,9 +434,14 @@ def evaluate_bringer_courier_option(hindsight_batch_info, relevant_orders, couri
             if eta > order_deadline:
                 is_any_order_late = True
                 break
+    
+    # Define a minimum required efficiency (e.g., 1.0 = 1 minute saved per 1 minute of bringer time)
+    bringer_efficiency = (time_saving / cost_bringer_part) if cost_bringer_part > 0 else 0
+    MIN_EFFICIENCY_RATIO = 1.2 
+    is_efficient_enough = bringer_efficiency > MIN_EFFICIENCY_RATIO
 
     # Only approve if it saves time and all orders are on time
-    if is_time_saving_positive and not is_any_order_late:
+    if is_time_saving_positive and not is_any_order_late and is_efficient_enough:
         return {
             "decision": "Yes", 
             "saving_minutes": time_saving / 60, 
