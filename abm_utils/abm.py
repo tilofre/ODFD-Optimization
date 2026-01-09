@@ -254,11 +254,10 @@ def move_couriers_new(couriers, timestart, metrics, delivered_order_ids, SPEED_H
             if order is not None and order.get('is_handover'):
                 courier.is_on_initial_split_leg = False
             if order is not None and 'order_id' in order:
-                # Schritt 1: IMMER für die while-Schleife zählen
                 delivered_order_ids.add(order['order_id'])
                 courier.completed_orders.append(order)
                 
-                # Schritt 2: NUR für getrackte Aufträge die Performance-Metriken updaten
+                # Update metrics
                 if order.get('phase') == 'tracked':
                     delay = courier.arrival_time - order['estimate_arrived_time']
                     if delay > 0: 
