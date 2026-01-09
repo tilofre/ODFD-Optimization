@@ -177,7 +177,7 @@ def execute_split_assignment(order, c1, c2, r1, r2, timestart, constants, reject
     #     order['estimate_meal_prepare_time'] = 0
     #     next_queue.append((order, 0))
     #     print(f"  [SPLIT PART 2 REJECTED] Order {order['order_id']} Part 1 assigned to C{c1.id}. Part 2 queued.")
-    # else: 
+    # else:
         # C2 ACCEPTS: Assign their route and dispatch them
     c2.was_part_of_split = True
     #c2.is_on_final_split_leg = True
@@ -194,13 +194,8 @@ def execute_split_assignment(order, c1, c2, r1, r2, timestart, constants, reject
     return True, updated_metrics # The order has been processed for this cycle
 
 def normalize_distance(distance, min_dist, max_dist):
-    """
-    Normalisiert eine gegebene Distanz auf eine Skala von 0 bis 1.
-    Behandelt den Sonderfall, dass die minimale und maximale Distanz identisch sind.
-    """
-    # Verhindert eine Division durch Null, falls alle Distanzen im Datensatz gleich sind
     if max_dist == min_dist:
-        return 0.5  # In diesem Fall ist die Distanz genau in der Mitte
+        return 0.5 
 
     return (distance - min_dist) / (max_dist - min_dist)
 
