@@ -7,6 +7,7 @@ import h3
 from itertools import permutations
 import abm_utils.rejection as rejection
 from itertools import permutations
+import abm_utils.familiarity as fam
 
 
 
@@ -16,7 +17,7 @@ class Courier:
     start_hex is an h3 index that represents the couriers starting point.    
     
     """
-    def __init__(self, courier_id, start_hex):
+    def __init__(self, courier_id, start_hex, familiar_zone_set):
         self.id = courier_id #Couriers unique ID
         self.base = start_hex # The courier's home base or starting hexagon H3 index.
         self.position = start_hex # The courier's current location, stored as an H3 index string, beginning with the starting point and is updated through the process
@@ -32,8 +33,12 @@ class Courier:
         self.was_part_of_split = False
         self.handled_orders_info = []
 
-        self.is_on_initial_split_leg = False # TRUE für C1 auf dem Weg zum Treffpunkt
-        self.is_on_final_split_leg = False   # TRUE für C2 auf dem Weg zum Kunden
+        self.is_on_initial_split_leg = False #Only for plotting
+        self.is_on_final_split_leg = False
+
+        self.familiar_zone = familiar_zone_set
+
+
         
 
 
@@ -52,48 +57,61 @@ def get_hex_distance(start_hex, end_hex):
     except (h3.H3FailedError, TypeError):
         return float('inf')
     
-def calculate_travel_time(start_hex, end_hex, SPEED_HEX_PER_STEP, steps):
-    """
-    Calculated travel time between hexagons
-    For assignment, courier movement ...
+# def calculate_travel_time(start_hex, end_hex, SPEED_HEX_PER_STEP, steps):
+#     """
+#     Calculated travel time between hexagons
+#     For assignment, courier movement ...
     
-    """
-    distance = get_hex_distance(start_hex, end_hex)
-    if distance == float('inf'): 
-        return float('inf')
-    travel_steps = math.ceil(distance / SPEED_HEX_PER_STEP)
-    return travel_steps * steps
+#     """
+#     distance = get_hex_distance(start_hex, end_hex)
+#     if distance == float('inf'): 
+#         return float('inf')
+#     travel_steps = math.ceil(distance / SPEED_HEX_PER_STEP)
+#     return travel_steps * steps
 
 
 
-def initiate_couriers(total_couriers_to_create, data_source_df):    
-    fleet = []
-    """
-    We need to initialize our fleet of couriers by placing them at their first known 
-    historical starting positions (start hexagon) from the provided dataset.
-    """
+# def initiate_couriers(total_couriers_to_create, data_source_df):    
+#     fleet = []
+#     """
+#     We need to initialize our fleet of couriers by placing them at their first known 
+#     historical starting positions (start hexagon) from the provided dataset.
+#     """
 
-    # To find the first known position of each real courier, we sort all orders by time
-    # and then keep only the first entry for each unique 'courier_id'
-    start_positions_df = data_source_df.sort_values('platform_order_time').drop_duplicates('courier_id') 
+#     # To find the first known position of each real courier, we sort all orders by time
+#     # and then keep only the first entry for each unique 'courier_id'
+#     start_positions_df = data_source_df.sort_values('platform_order_time').drop_duplicates('courier_id') 
     
-    # we create a list of all hexagon locations where couriers started.
-    # We drop any potential missing values (.dropna()) to ensure the list is clean.
-    real_start_hexes_list  = start_positions_df['grab_h3'].dropna().tolist()
+#     # we create a list of all hexagon locations where couriers started.
+#     # We drop any potential missing values (.dropna()) to ensure the list is clean.
+#     real_start_hexes_list  = start_positions_df['grab_h3'].dropna().tolist()
     
-    # Create couriers and distribute them across the starting locations based on their starting amount
-    if not real_start_hexes_list:
-        return fleet
+#     # Create couriers and distribute them across the starting locations based on their starting amount
+#     if not real_start_hexes_list:
+#         return fleet
 
-    for i in range(total_couriers_to_create):
-        start_hex = real_start_hexes_list[i % len(real_start_hexes_list)]
-        #We have a list with all starting points and the number of couriers are iterating through. 
-        # If courier fleet is scaled down, the starting points differ
+#     for i in range(total_couriers_to_create):
+#         start_hex = real_start_hexes_list[i % len(real_start_hexes_list)]
+#         #We have a list with all starting points and the number of couriers are iterating through. 
+#         # If courier fleet is scaled down, the starting points differ
         
-        courier = Courier(courier_id=i, start_hex=start_hex)
+#         courier = Courier(courier_id=i, start_hex=start_hex)
         
-        fleet.append(courier)
+#         fleet.append(courier)
             
+#     return fleet
+
+def initiate_couriers(total_couriers, blueprints, real_ids):
+    fleet = []
+    for i in range(total_couriers):
+        bp = blueprints[real_ids[i % len(real_ids)]]
+        
+        c = Courier(
+            courier_id=i, 
+            start_hex=bp['start_hex'],
+            familiar_zone_set=bp['familiar_zone']
+        )
+        fleet.append(c)
     return fleet
 
 def move_idle_couriers_randomly(couriers, timestart):
@@ -151,7 +169,7 @@ def calculate_total_distance_in_hexes(couriers_list):
                 
     return total_hex_distance
 
-def find_best_assignment_new(order, candidate_couriers, timestart, SPEED_HEX_PER_STEP, steps, MAX_ACCEPTABLE_DELAY_SECONDS):
+def find_best_assignment_new(order, candidate_couriers, timestart, SPEED_HEX_PER_STEP,SPEED_FAST_HEX_PER_STEP, steps, MAX_ACCEPTABLE_DELAY_SECONDS):
     """
     Retains detailed route calculation and adds strategic
     prioritisation for punctual stacking couriers.
@@ -183,7 +201,16 @@ def find_best_assignment_new(order, candidate_couriers, timestart, SPEED_HEX_PER
             max_lateness_in_route = -float('inf')
             
             for stop_hex, stop_type, order_info in route_candidate:
-                travel_time = calculate_travel_time(sim_pos, stop_hex, SPEED_HEX_PER_STEP, steps)
+                travel_time = fam.calculate_travel_time(
+                    start_hex=sim_pos, 
+                    end_hex=stop_hex, 
+                    normal_speed=SPEED_HEX_PER_STEP, 
+                    fast_speed=SPEED_FAST_HEX_PER_STEP,
+                    steps=steps,
+                    familiar_zone_set=courier.familiar_zone
+                )
+
+
                 sim_time += travel_time
                 sim_pos = stop_hex
                 
@@ -196,7 +223,7 @@ def find_best_assignment_new(order, candidate_couriers, timestart, SPEED_HEX_PER
                         actual_handoff_time = sim_time
                         final_customer_hex = order_info['final_customer_hex']
                         final_order = order_info['final_customer_order']
-                        c2_travel_time = calculate_travel_time(stop_hex, final_customer_hex, SPEED_HEX_PER_STEP, steps)
+                        c2_travel_time = fam.calculate_travel_time(stop_hex, order_info['final_customer_hex'], SPEED_HEX_PER_STEP, SPEED_FAST_HEX_PER_STEP, steps, set())
                         final_arrival_time = actual_handoff_time + c2_travel_time
                         lateness = final_arrival_time - final_order['estimate_arrived_time']
                         max_lateness_in_route = max(max_lateness_in_route, lateness)
@@ -228,9 +255,8 @@ def find_best_assignment_new(order, candidate_couriers, timestart, SPEED_HEX_PER
     #If none of the options meet the deadline, give up.
     return None, None, float('inf')
 
-def move_couriers_new(couriers, timestart, metrics, delivered_order_ids, SPEED_HEX_PER_STEP, steps):
+def move_couriers_new(couriers, timestart, metrics, delivered_order_ids, SPEED_HEX_PER_STEP, SPEED_FAST_HEX_PER_STEP, steps):
     """
-    Corrected version:
     - ALWAYS adds delivered orders to delivered_order_ids for the simulation loop.
     - ONLY updates performance metrics (delay, success) for 'tracked' orders.
     """
@@ -274,7 +300,14 @@ def move_couriers_new(couriers, timestart, metrics, delivered_order_ids, SPEED_H
 
         if courier.mandatory_stops:
             next_stop = courier.mandatory_stops[0]
-            travel_time = calculate_travel_time(courier.position, next_stop[0], SPEED_HEX_PER_STEP, steps)
+            travel_time = fam.calculate_travel_time(
+                start_hex=courier.position, 
+                end_hex=next_stop[0], 
+                normal_speed=SPEED_HEX_PER_STEP,
+                fast_speed=SPEED_FAST_HEX_PER_STEP, # <--- Wird jetzt genutzt
+                steps=steps,
+                familiar_zone_set=courier.familiar_zone # <--- Zone aus dem Kurier
+            )
             courier.arrival_time = departure_time + travel_time
         else:
             courier.state = 'IDLE'; courier.arrival_time = None
@@ -311,10 +344,10 @@ def handle_standard_assignment(order, attempts, couriers, timestart, constants, 
                 best_courier = find_best_free_courier(order, free_candidates)
                 if best_courier:
                     route_plan = [[order['sender_h3'], 'R', order], [order['recipient_h3'], 'C', order]]
-                    t_time_to_rest = calculate_travel_time(best_courier.position, order['sender_h3'], constants['SPEED_HEX_PER_STEP'], constants['steps'])
+                    t_time_to_rest = fam.calculate_travel_time(best_courier.position, order['sender_h3'], constants['SPEED_HEX_PER_STEP'], constants["SPEED_FAST_HEX_PER_STEP"], constants['steps'],best_courier.familiar_zone)
                     t_arrival_at_rest = timestart + t_time_to_rest
                     t_departs_rest = max(t_arrival_at_rest, order['estimate_meal_prepare_time'])
-                    t_time_to_cust = calculate_travel_time(order['sender_h3'], order['recipient_h3'], constants['SPEED_HEX_PER_STEP'], constants['steps'])
+                    t_time_to_cust = fam.calculate_travel_time(order['sender_h3'], order['recipient_h3'], constants['SPEED_HEX_PER_STEP'], constants["SPEED_FAST_HEX_PER_STEP"], constants['steps'],best_courier.familiar_zone)
                     final_arrival = t_departs_rest + t_time_to_cust
                     estimated_lateness = final_arrival - order['estimate_arrived_time']
         else:
@@ -323,7 +356,7 @@ def handle_standard_assignment(order, attempts, couriers, timestart, constants, 
             top_candidates = candidates_for_this_order[:100]
             best_courier, route_plan, estimated_lateness = find_best_assignment_new(
                 order, top_candidates, timestart, 
-                constants['SPEED_HEX_PER_STEP'], constants['steps'], constants['MAX_ACCEPTABLE_DELAY_SECONDS']
+                constants['SPEED_HEX_PER_STEP'],constants["SPEED_FAST_HEX_PER_STEP"], constants['steps'], constants['MAX_ACCEPTABLE_DELAY_SECONDS']
             )
 
         if not best_courier:
@@ -356,7 +389,7 @@ def handle_standard_assignment(order, attempts, couriers, timestart, constants, 
                 best_courier.handled_orders_info.append(order)
                 best_courier.active_deliveries = len([s for s in route_plan if s[1] == 'C' and s[2] is not None])
                 if best_courier.state == 'IDLE':
-                    travel_time = calculate_travel_time(best_courier.position, route_plan[0][0], constants['SPEED_HEX_PER_STEP'], constants['steps'])
+                    travel_time = fam.calculate_travel_time(best_courier.position, route_plan[0][0], constants['SPEED_HEX_PER_STEP'],constants["SPEED_FAST_HEX_PER_STEP"], constants['steps'],best_courier.familiar_zone)
                     best_courier.arrival_time = timestart + travel_time
                     best_courier.state = 'BUSY'
                 
@@ -379,7 +412,14 @@ def handle_standard_assignment(order, attempts, couriers, timestart, constants, 
                 best_courier.handled_orders_info.append(order)
                 best_courier.active_deliveries = len([s for s in route_plan if s[1] == 'C' and s[2] is not None])
                 if best_courier.state == 'IDLE':
-                    travel_time = calculate_travel_time(best_courier.position, route_plan[0][0], constants['SPEED_HEX_PER_STEP'], constants['steps'])
+                    travel_time = fam.calculate_travel_time(
+                    start_hex=best_courier.position, 
+                    end_hex=route_plan[0][0], 
+                    normal_speed=constants['SPEED_HEX_PER_STEP'],
+                    fast_speed=constants["SPEED_FAST_HEX_PER_STEP"], 
+                    steps=constants['steps'],
+                    familiar_zone_set=best_courier.familiar_zone # <--- WICHTIG: Das hier hat gefehlt
+                )
                     best_courier.arrival_time = timestart + travel_time
                     best_courier.state = 'BUSY'
                 
