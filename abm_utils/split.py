@@ -1,5 +1,6 @@
 import h3
 import abm_utils.abm as abm
+import abm_utils.familiarity as fam
 import abm_utils.rejection as rejection
 import random
 
@@ -37,18 +38,18 @@ def find_dynamic_meeting_point_hex(order, courier1, courier2, timestart, constan
         path = [best_meeting_point] # Fallback if path fails
 
     # Calculate time for courier 1 to get to the restaurant and wait for food
-    c1_to_rest_time = abm.calculate_travel_time(courier1.position, restaurant_hex, constants['SPEED_HEX_PER_STEP'], constants['steps'])
+    c1_to_rest_time = fam.calculate_travel_time(courier1.position, restaurant_hex, constants['SPEED_HEX_PER_STEP'], constants['SPEED_FAST_HEX_PER_STEP'], constants['steps'], courier1.familiar_zone)
     c1_arrival_at_rest = timestart + c1_to_rest_time
     c1_departs_rest = max(c1_arrival_at_rest, order['estimate_meal_prepare_time'])
 
     # Check each hexagon on the path as a potential meeting point
     for point in path:
         # Time for C1 to reach this point from the restaurant
-        rest_to_meet_time = abm.calculate_travel_time(restaurant_hex, point, constants['SPEED_HEX_PER_STEP'], constants['steps'])
+        rest_to_meet_time = fam.calculate_travel_time(restaurant_hex, point, constants['SPEED_HEX_PER_STEP'],constants['SPEED_FAST_HEX_PER_STEP'], constants['steps'],courier1.familiar_zone)
         c1_arrival_at_meet = c1_departs_rest + rest_to_meet_time
         
         # Time for C2 to reach this point directly
-        c2_to_meet_time = abm.calculate_travel_time(courier2.position, point, constants['SPEED_HEX_PER_STEP'], constants['steps'])
+        c2_to_meet_time = fam.calculate_travel_time(courier2.position, point, constants['SPEED_HEX_PER_STEP'],constants['SPEED_FAST_HEX_PER_STEP'], constants['steps'], courier2.familiar_zone)
         c2_arrival_at_meet = timestart + c2_to_meet_time
         
         # Handoff happens when the LATER of the two couriers arrives
@@ -99,17 +100,17 @@ def process_split_delivery(order, idle_couriers, timestart, constants):
     meeting_point = find_dynamic_meeting_point_hex(order, c1, c2, timestart, constants)
     
     # Calculate the full timeline and final delay
-    c1_to_rest_time = abm.calculate_travel_time(c1.position, restaurant_hex, constants['SPEED_HEX_PER_STEP'], constants['steps'])
+    c1_to_rest_time = fam.calculate_travel_time(c1.position, restaurant_hex, constants['SPEED_HEX_PER_STEP'],constants['SPEED_FAST_HEX_PER_STEP'], constants['steps'],c1.familiar_zone)
     c1_arrival_at_rest = timestart + c1_to_rest_time
     c1_departs_rest = max(c1_arrival_at_rest, order['estimate_meal_prepare_time'])
-    rest_to_meet_time = abm.calculate_travel_time(restaurant_hex, meeting_point, constants['SPEED_HEX_PER_STEP'], constants['steps'])
+    rest_to_meet_time = fam.calculate_travel_time(restaurant_hex, meeting_point, constants['SPEED_HEX_PER_STEP'],constants['SPEED_FAST_HEX_PER_STEP'], constants['steps'], c1.familiar_zone)
     c1_arrival_at_meet = c1_departs_rest + rest_to_meet_time
 
-    c2_to_meet_time = abm.calculate_travel_time(c2.position, meeting_point, constants['SPEED_HEX_PER_STEP'], constants['steps'])
+    c2_to_meet_time = fam.calculate_travel_time(c2.position, meeting_point, constants['SPEED_HEX_PER_STEP'],constants['SPEED_FAST_HEX_PER_STEP'], constants['steps'], c2.familiar_zone)
     c2_arrival_at_meet = timestart + c2_to_meet_time
 
     handoff_time = max(c1_arrival_at_meet, c2_arrival_at_meet)
-    meet_to_cust_time = abm.calculate_travel_time(meeting_point, customer_hex, constants['SPEED_HEX_PER_STEP'], constants['steps'])
+    meet_to_cust_time = fam.calculate_travel_time(meeting_point, customer_hex, constants['SPEED_HEX_PER_STEP'],constants['SPEED_FAST_HEX_PER_STEP'], constants['steps'], c2.familiar_zone)
     final_delivery_time = handoff_time + meet_to_cust_time
     
     total_delay = max(0, final_delivery_time - order['estimate_arrived_time'])
@@ -153,7 +154,7 @@ def execute_split_assignment(order, c1, c2, r1, r2, timestart, constants, reject
     c1.mandatory_stops = r1
     c1.handled_orders_info.append(order)
     c1.active_deliveries = 1
-    travel_time1 = abm.calculate_travel_time(c1.position, r1[0][0], constants['SPEED_HEX_PER_STEP'], constants['steps'])
+    travel_time1 = fam.calculate_travel_time(c1.position, r1[0][0], constants['SPEED_HEX_PER_STEP'],constants['SPEED_FAST_HEX_PER_STEP'], constants['steps'], c1.familiar_zone)
     c1.arrival_time = timestart + travel_time1
     c1.state = 'BUSY'
     
@@ -184,7 +185,7 @@ def execute_split_assignment(order, c1, c2, r1, r2, timestart, constants, reject
     c2.mandatory_stops = r2
     c2.handled_orders_info.append(order) 
     c2.active_deliveries = 1
-    travel_time2 = abm.calculate_travel_time(c2.position, r2[0][0], constants['SPEED_HEX_PER_STEP'], constants['steps'])
+    travel_time2 = fam.calculate_travel_time(c2.position, r2[0][0], constants['SPEED_HEX_PER_STEP'],constants['SPEED_FAST_HEX_PER_STEP'], constants['steps'], c2.familiar_zone)
     c2.arrival_time = timestart + travel_time2
     c2.state = 'BUSY'
     processed_ids_set.add(order['order_id'])
