@@ -2,6 +2,7 @@ import h3
 import math
 import pandas as pd
 from collections import Counter
+from functools import lru_cache
 
 def create_courier_blueprints(df, threshold_ratio=0.6):
 
@@ -36,7 +37,21 @@ def create_courier_blueprints(df, threshold_ratio=0.6):
     return blueprints, list(blueprints.keys())
                 
 
-
+@lru_cache(maxsize=50000)
+def get_res8_path_ratio(start_res8, end_res8, familiar_zone_frozenset):
+    try:
+        path = h3.grid_path_cells(start_res8, end_res8)
+        if not path: return 0.0
+        
+        total_cells = len(path)
+        familiar_count = sum(1 for h in path if h in familiar_zone_frozenset)
+        
+        return familiar_count / total_cells
+    except:
+        hits = 0
+        if start_res8 in familiar_zone_frozenset: hits += 1
+        if end_res8 in familiar_zone_frozenset: hits += 1
+        return hits / 2.0
 
 def determine_familiarity_zone(hex_list, parent_res):
     if not hex_list: 
@@ -82,21 +97,73 @@ def get_lat_lon(h3_cell):
     except:
         return None, None
     
+# def calculate_travel_time(start_hex, end_hex, normal_speed, fast_speed, steps, familiar_zone_set):
+#     try:
+#         dist = h3.grid_distance(start_hex, end_hex)
+#     except:
+#         return float('inf')
+        
+#     if dist == 0: return 0
+
+#     base_time = math.ceil(dist / normal_speed) * steps
+
+#     if not familiar_zone_set:
+#         return base_time
+    
+    
+
+#     start_res8 = h3.cell_to_parent(start_hex, 8)
+#     end_res8 = h3.cell_to_parent(end_hex, 8)
+
+#     in_start = start_res8 in familiar_zone_set
+#     in_end = end_res8 in familiar_zone_set
+
+#     if in_start and in_end:
+#         return math.ceil(dist / fast_speed) * steps
+
+#     if not in_start and not in_end:
+#         return base_time
+
+#     try:
+#         path = h3.grid_path_cells(start_hex, end_hex)
+#         n = len(path)
+#         low, high = 0, n - 1
+#         boundary = 0
+
+#         while low <= high:
+#             mid = (low + high) // 2
+#             mid_res8 = h3.cell_to_parent(path[mid], 8)
+#             in_mid = (mid_res8 in familiar_zone_set)
+
+#             if in_mid == in_start:
+#                 boundary = mid
+#                 low = mid + 1
+#             else:
+#                 high = mid - 1
+
+#         steps_start_state = boundary
+#         steps_end_state = (n - 1) - boundary
+
+#         if in_start: 
+#             time_steps = (steps_start_state / fast_speed) + (steps_end_state / normal_speed)
+#         else: 
+#             time_steps = (steps_start_state / normal_speed) + (steps_end_state / fast_speed)
+#         return math.ceil(time_steps) * steps
+        
+
+#     except:
+#         return base_time
+
 def calculate_travel_time(start_hex, end_hex, normal_speed, fast_speed, steps, familiar_zone_set):
     try:
-        dist = h3.grid_distance(start_hex, end_hex)
+        total_dist_r13 = h3.grid_distance(start_hex, end_hex)
     except:
         return float('inf')
         
-    if dist == 0: return 0
+    if total_dist_r13 == 0: return 0
 
-    base_time = math.ceil(dist / normal_speed) * steps
-
-    if not familiar_zone_set:
-        print('Base time')
-        return base_time
-    
-    
+    if not familiar_zone_set or normal_speed == fast_speed:
+        return math.ceil(total_dist_r13 / normal_speed) * steps
 
     start_res8 = h3.cell_to_parent(start_hex, 8)
     end_res8 = h3.cell_to_parent(end_hex, 8)
@@ -104,41 +171,23 @@ def calculate_travel_time(start_hex, end_hex, normal_speed, fast_speed, steps, f
     in_start = start_res8 in familiar_zone_set
     in_end = end_res8 in familiar_zone_set
 
+    if start_res8 == end_res8:
+        speed = fast_speed if in_start else normal_speed
+        return math.ceil(total_dist_r13 / speed) * steps
+
     if in_start and in_end:
-        return math.ceil(dist / fast_speed) * steps
+        return math.ceil(total_dist_r13 / fast_speed) * steps
 
     if not in_start and not in_end:
-        print('Base time')
-        return base_time
+        return math.ceil(total_dist_r13 / normal_speed) * steps
 
-    try:
-        path = h3.grid_path_cells(start_hex, end_hex)
-        n = len(path)
-        low, high = 0, n - 1
-        boundary = 0
-
-        while low <= high:
-            mid = (low + high) // 2
-            mid_res8 = h3.cell_to_parent(path[mid], 8)
-            in_mid = (mid_res8 in familiar_zone_set)
-
-            if in_mid == in_start:
-                boundary = mid
-                low = mid + 1
-            else:
-                high = mid - 1
-
-        steps_start_state = boundary
-        steps_end_state = (n - 1) - boundary
-
-        if in_start: 
-            time_steps = (steps_start_state / fast_speed) + (steps_end_state / normal_speed)
-        else: #
-            time_steps = (steps_start_state / normal_speed) + (steps_end_state / fast_speed)
-            print('Fam time')
-        return math.ceil(time_steps) * steps
-        
-
-    except:
-        return base_time
+    frozen_zone = frozenset(familiar_zone_set)
     
+    ratio_familiar = get_res8_path_ratio(start_res8, end_res8, frozen_zone)
+
+    dist_fast = total_dist_r13 * ratio_familiar
+    dist_slow = total_dist_r13 * (1.0 - ratio_familiar)
+
+    time_steps = (dist_fast / fast_speed) + (dist_slow / normal_speed)
+    
+    return math.ceil(time_steps) * steps
