@@ -245,7 +245,7 @@ def find_best_assignment_new(order, candidate_couriers, timestart, SPEED_HEX_PER
   
     # Find the best overall option from both competitions
     final_best_option = best_idle_option
-    if best_stacking_option['lateness'] < best_idle_option['lateness']:
+    if best_stacking_option['lateness'] <= best_idle_option['lateness']:
         final_best_option = best_stacking_option
 
     if final_best_option["lateness"] <= MAX_ACCEPTABLE_DELAY_SECONDS:
